@@ -640,7 +640,7 @@
         "type": "function",
         "z": "a99ef80a0efd40bf",
         "name": "檢測讀書時間",
-        "func": "// 驗證必要欄位\nif (!msg.payload || typeof msg.payload !== 'object') {\n    msg.statusCode = 400;\n    msg.payload = { error: '無效的數據格式' };\n    return [null, msg];\n}\n\nconst { sitting, alarm, duration, threshold } = msg.payload;\n\nif (sitting === undefined || duration === undefined) {\n    msg.statusCode = 400;\n    msg.payload = { error: '缺少必要欄位' };\n    return [null, msg];\n}\n\n// 準備資料庫查詢\nconst now = new Date();\n\n// 明確列出所有欄位（除了自增的 id）\nmsg.topic = 'INSERT INTO sitting_records (start_time, end_time, duration_seconds) VALUES (?, ?, ?)';\n\n// 計算開始時間\nconst endTime = now;\nconst startTime = new Date(now.getTime() - (duration * 1000));\n\n// 格式化時間為 MySQL datetime 格式 (YYYY-MM-DD HH:mm:ss)\nfunction formatDateTime(date) {\n    return date.toISOString().slice(0, 19).replace('T', ' ');\n}\n\nmsg.payload = [\n    formatDateTime(startTime),\n    formatDateTime(endTime),\n    duration\n];\n\nreturn [msg, { payload: { status: 'success' }, statusCode: 200 }];",
+        "func": "// 驗證必要欄位\nlet data = msg.payload;\n\n// 如果是字串，嘗試解析 JSON\nif (typeof data === 'string') {\n    try {\n        data = JSON.parse(data);\n    } catch (e) {\n        msg.statusCode = 400;\n        msg.payload = { error: '無效的 JSON 格式' };\n        return [null, msg];\n    }\n}\n\n// 從資料中提取所需欄位\nconst { start_time, end_time, duration_seconds } = data;\n\n// 驗證必要欄位\nif (!start_time || !end_time || duration_seconds === undefined) {\n    msg.statusCode = 400;\n    msg.payload = { error: '缺少必要欄位' };\n    return [null, msg];\n}\n\n// 準備資料庫查詢\nmsg.topic = 'INSERT INTO sitting_records (start_time, end_time, duration_seconds) VALUES (?, ?, ?)';\n\n// 格式化時間為 MySQL datetime 格式 (YYYY-MM-DD HH:mm:ss)\nfunction formatDateTime(dateStr) {\n    const date = new Date(dateStr);\n    return date.toISOString().slice(0, 19).replace('T', ' ');\n}\n\n// 設置查詢參數\nmsg.payload = [\n    formatDateTime(start_time),\n    formatDateTime(end_time),\n    duration_seconds\n];\n\nnode.warn('準備插入資料庫的資料：' + JSON.stringify(msg.payload));\n\nreturn [msg, { payload: { status: 'success' }, statusCode: 200 }];",
         "outputs": 2,
         "timeout": "",
         "noerr": 0,
@@ -653,7 +653,8 @@
             [
                 "b91488ba884447fe",
                 "85143f61fdbdd539"
-            ]
+            ],
+            []
         ]
     },
     {
@@ -1531,7 +1532,8 @@
         "y": 1500,
         "wires": [
             [
-                "process_sitting_record"
+                "process_sitting_record",
+                "e85f0e79592ecf08"
             ]
         ]
     },
@@ -1540,7 +1542,7 @@
         "type": "function",
         "z": "a99ef80a0efd40bf",
         "name": "處理久坐記錄",
-        "func": "// 驗證必要欄位\nif (!msg.payload || typeof msg.payload !== 'object') {\n    msg.statusCode = 400;\n    msg.payload = { error: '無效的數據格式' };\n    return [null, msg];\n}\n\nconst { sitting, alarm, duration, threshold } = msg.payload;\n\nif (sitting === undefined || duration === undefined) {\n    msg.statusCode = 400;\n    msg.payload = { error: '缺少必要欄位' };\n    return [null, msg];\n}\n\n// 準備資料庫查詢\nconst now = new Date();\n\n// 明確列出所有欄位（除了自增的 id）\nmsg.topic = 'INSERT INTO sitting_records (start_time, end_time, duration_seconds) VALUES (?, ?, ?)';\n\n// 計算開始時間\nconst endTime = now;\nconst startTime = new Date(now.getTime() - (duration * 1000));\n\n// 格式化時間為 MySQL datetime 格式 (YYYY-MM-DD HH:mm:ss)\nfunction formatDateTime(date) {\n    return date.toISOString().slice(0, 19).replace('T', ' ');\n}\n\nmsg.payload = [\n    formatDateTime(startTime),\n    formatDateTime(endTime),\n    duration\n];\n\nreturn [msg, { payload: { status: 'success' }, statusCode: 200 }];",
+        "func": "// 驗證必要欄位\nlet data = msg.payload;\n\n// 如果是字串，嘗試解析 JSON\nif (typeof data === 'string') {\n    try {\n        data = JSON.parse(data);\n    } catch (e) {\n        msg.statusCode = 400;\n        msg.payload = { error: '無效的 JSON 格式' };\n        return [null, msg];\n    }\n}\n\n// 從資料中提取所需欄位\nconst { start_time, end_time, duration_seconds } = data;\n\n// 驗證必要欄位\nif (!start_time || !end_time || duration_seconds === undefined) {\n    msg.statusCode = 400;\n    msg.payload = { error: '缺少必要欄位' };\n    return [null, msg];\n}\n\n// 準備資料庫查詢\nmsg.topic = 'INSERT INTO sitting_records (start_time, end_time, duration_seconds) VALUES (?, ?, ?)';\n\n// 格式化時間為 MySQL datetime 格式 (YYYY-MM-DD HH:mm:ss)\nfunction formatDateTime(dateStr) {\n    const date = new Date(dateStr);\n    return date.toISOString().slice(0, 19).replace('T', ' ');\n}\n\n// 設置查詢參數\nmsg.payload = [\n    formatDateTime(start_time),\n    formatDateTime(end_time),\n    duration_seconds\n];\n\nnode.warn('準備插入資料庫的資料：' + JSON.stringify(msg.payload));\n\nreturn [msg, { payload: { status: 'success' }, statusCode: 200 }];",
         "outputs": 2,
         "timeout": "",
         "noerr": 0,
@@ -1646,6 +1648,22 @@
         "statusType": "auto",
         "x": 700,
         "y": 1620,
+        "wires": []
+    },
+    {
+        "id": "e85f0e79592ecf08",
+        "type": "debug",
+        "z": "a99ef80a0efd40bf",
+        "name": "debug 15",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 500,
+        "y": 1580,
         "wires": []
     }
 ]

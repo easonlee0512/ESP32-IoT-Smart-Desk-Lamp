@@ -1,143 +1,268 @@
-# 智慧桌燈系統
+# 智慧桌燈系統 Smart Desk Lamp
 
-基於ESP32和Node-RED的智慧桌燈系統，透過MQTT協議實現連接。
+本專題以 ESP32 為核心控制器，結合多種感測器與 MQTT 通訊協定，打造一套具備環境感知與遠端控制能力的智慧桌燈系統。
 
-## 環境安裝步驟
+系統透過光敏電阻自動偵測環境亮度並反比調整燈光強度，搭配 DHT11 溫濕度感測器持續監測學習環境；超音波感測器則用於偵測使用者是否長時間在座，一旦超過設定閾值即以紅燈閃爍提示起身活動。8×8 LED 矩陣作為本地顯示介面，輪流顯示當前溫度與濕度數值。
 
-### 1. 安裝Homebrew（MacOS）
+所有感測數據透過 MQTT 協定上傳至 Mosquitto Broker，再由 Node-RED 進行視覺化呈現與自動化控制，使用者亦可透過 Node-RED 儀表板遠端調整燈光亮度或重置久坐提醒。
+
+---
+
+## 目錄
+
+- [系統架構](#系統架構)
+- [功能特色](#功能特色)
+- [硬體規格](#硬體規格)
+- [環境需求](#環境需求)
+- [安裝與部署](#安裝與部署)
+- [MQTT 通訊協定](#mqtt-通訊協定)
+- [專案結構](#專案結構)
+- [故障排除](#故障排除)
+
+---
+
+## 系統架構
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      ESP32 韌體                          │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │
+│  │ DHT11    │  │ 超音波   │  │ 光敏電阻 │  │LED矩陣 │  │
+│  │ 溫濕度   │  │ 距離偵測 │  │ 環境亮度 │  │8x8顯示 │  │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └───┬────┘  │
+│       └─────────────┴──────────────┴─────────────┘      │
+│                        ESP32 Core                        │
+│                     WiFi + MQTT Client                   │
+└───────────────────────────┬─────────────────────────────┘
+                            │ MQTT (port 1883)
+                            ▼
+                   ┌─────────────────┐
+                   │ Mosquitto Broker │
+                   └────────┬────────┘
+                            │
+                            ▼
+                   ┌─────────────────┐
+                   │   Node-RED      │
+                   │  儀表板 :1880   │
+                   │ - 燈光控制      │
+                   │ - 環境監測      │
+                   │ - 久坐提醒      │
+                   └─────────────────┘
+```
+
+---
+
+## 功能特色
+
+| 功能 | 說明 |
+|------|------|
+| 智慧光線控制 | 光敏電阻偵測環境亮度，自動反比調整 LED 亮度 |
+| 環境監測 | DHT11 每 5 秒讀取溫濕度，透過 MQTT 上傳 |
+| 久坐提醒 | 超音波感測器偵測在座狀態，超時紅燈閃爍警示 |
+| LED 矩陣顯示 | 8×8 矩陣交替顯示溫度與濕度數值 |
+| 遠端控制 | Node-RED 儀表板遠端調整亮度、重置提醒 |
+| 數據可視化 | Node-RED 即時圖表顯示環境趨勢 |
+
+---
+
+## 硬體規格
+
+### 元件清單
+
+| 元件 | 型號 | 腳位 | 用途 |
+|------|------|------|------|
+| 微控制器 | ESP32 | — | 核心處理器 |
+| 溫濕度感測器 | DHT11 | GPIO 25 | 環境監測 |
+| 超音波感測器 | HC-SR04 | Trig: GPIO 16 / Echo: GPIO 17 | 久坐偵測 |
+| 光敏電阻 | LDR | GPIO 27 (ADC) | 環境亮度偵測 |
+| LED 燈 | 白色 LED | GPIO 26 | 主要照明 |
+| 紅色 LED | 5mm LED | GPIO 5 | 久坐警示燈 |
+| LED 矩陣 | MAX7219 8×8 | DIN: 19 / CLK: 21 / CS: 18 | 數值顯示 |
+
+### 腳位配置圖
+
+```
+ESP32
+├── GPIO 16 ──► HC-SR04 Trig
+├── GPIO 17 ◄── HC-SR04 Echo
+├── GPIO 18 ──► MAX7219 CS
+├── GPIO 19 ──► MAX7219 DIN
+├── GPIO 21 ──► MAX7219 CLK
+├── GPIO 25 ◄── DHT11 DATA
+├── GPIO 26 ──► White LED (PWM)
+├── GPIO 27 ◄── LDR (ADC)
+└── GPIO 5  ──► Red LED
+```
+
+---
+
+## 環境需求
+
+### 軟體需求
+
+| 軟體 | 版本需求 | 說明 |
+|------|---------|------|
+| Arduino IDE | 2.x 以上 | ESP32 韌體開發 |
+| Node.js | 18.x 以上 | Node-RED 執行環境 |
+| Mosquitto | 2.x | MQTT Broker |
+| Node-RED | 3.x 以上 | 視覺化流程控制 |
+
+### Arduino 函式庫
+
+請在 Arduino IDE 的函式庫管理員中安裝以下套件：
+
+- `PubSubClient` — MQTT 客戶端
+- `DHT sensor library` — DHT11/DHT22 支援
+- `LedControl` / `LedControlMS` — MAX7219 LED 矩陣驅動
+- `Ultrasonic` — HC-SR04 超音波感測器
+
+---
+
+## 安裝與部署
+
+### 1. 複製專案
 
 ```bash
+git clone <repository-url>
+cd esp32-smart-desk-lamp
+```
+
+### 2. 安裝系統依賴（macOS）
+
+```bash
+# 安裝 Homebrew（若尚未安裝）
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
 
-安裝完成後，按照提示設定環境變數：
-
-```bash
-echo >> ~/.zprofile
-echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-eval "$(/opt/homebrew/bin/brew shellenv)"
-```
-
-### 2. 安裝Node.js和Mosquitto MQTT伺服器
-
-```bash
+# 安裝 Node.js 與 Mosquitto
 brew install node mosquitto
 ```
 
-### 3. 安裝Node-RED
+### 3. 安裝 Node-RED
 
 ```bash
 npm install -g --unsafe-perm node-red
 ```
 
-### 4. 安裝專案依賴
+### 4. 安裝專案 Node-RED 依賴
 
 ```bash
-# 在專案目錄中執行
-cd /Users/eason/esp32/smart-desk-lamp
 npm install
 ```
 
-### 5. ESP32環境設定
+### 5. 設定 ESP32 韌體
 
-在Arduino IDE中安裝以下庫：
-- ESP32開發板
-- WiFi庫
-- PubSubClient（MQTT庫）
-- DHT感測器庫
-- LedControl庫
-- Ultrasonic庫
+開啟 `Arduino_DHT/Arduino_DHT.ino`，修改以下設定：
 
-## 啟動步驟
+```cpp
+// WiFi 設定
+const char* ssid     = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
 
-### 1. 啟動MQTT伺服器
-
-```bash
-# 使用以下命令開啟MQTT伺服器
-mosquitto -c mosquitto.conf
-
-# 或使用brew服務啟動
-brew services start mosquitto
+// MQTT Broker IP（請填入主機的實際 IP）
+const char* mqtt_server = "192.168.x.x";
 ```
 
-### 2. 啟動Node-RED
+### 6. 啟動系統
 
+**步驟 1：啟動 MQTT Broker**
 ```bash
-# 在專案根目錄中執行以下命令啟動Node-RED
-cd /Users/eason/esp32
+mosquitto -c mosquitto.conf
+```
+
+**步驟 2：啟動 Node-RED（使用專案設定）**
+```bash
 npm start
 ```
 
-然後在瀏覽器中訪問：http://localhost:1880
+> **注意**：請務必從專案根目錄執行 `npm start`，以確保載入 `node-red-data/flows.json` 中的流程設定。請勿直接執行 `node-red` 指令，否則將使用系統預設路徑的流程。
 
-**注意事項：**
-- 專案使用的Node-RED流程文件位於 `/Users/eason/esp32/node-red-data/flows.json`
-- 請務必使用上述專案根目錄中的 `npm start` 命令啟動Node-RED，而不是直接使用 `node-red` 命令
-- 如果直接使用 `node-red` 命令，流程將保存在默認位置 `/Users/eason/.node-red/flows.json`，與專案使用的流程文件不同
-- 不要在 `/Users/eason/esp32/smart-desk-lamp` 子目錄啟動，這是一個不同的配置
+**步驟 3：開啟儀表板**
 
-### 3. 上傳代碼到ESP32
+在瀏覽器中訪問：[http://localhost:1880](http://localhost:1880)
 
-1. 在Arduino IDE中打開 `Arduino_DHT/Arduino_DHT.ino`
-2. 修改WiFi設定（SSID和密碼）
-3. 修改MQTT伺服器設定（IP地址和埠號）
-4. 上傳代碼到ESP32
+**步驟 4：上傳韌體至 ESP32**
 
-### 4. 監控MQTT訊息
+1. 以 Arduino IDE 開啟 `Arduino_DHT/Arduino_DHT.ino`
+2. 選擇正確的開發板（`ESP32 Dev Module`）與 COM 埠
+3. 點擊「上傳」
+
+### 7. 驗證系統運作
 
 ```bash
-# 訂閱所有智慧桌燈主題
+# 監聽所有 smartlamp 主題的 MQTT 訊息
 mosquitto_sub -h localhost -t "smartlamp/#" -v
 ```
 
-## MQTT主題結構
+---
 
-- `smartlamp/light` - 燈光控制和亮度資料
-- `smartlamp/environment` - 環境數據（溫濕度、光敏）
-- `smartlamp/timer` - 計時器狀態
-- `smartlamp/alarm` - 鬧鐘設定
-- `smartlamp/reminder` - 久坐提醒狀態
-- `smartlamp/settings/sitting_reminder` - 久坐提醒時間設定
+## MQTT 通訊協定
 
-## MQTT消息示例
+### 主題結構
 
-以下是系統運行時的MQTT消息示例：
+| 主題 | 方向 | 說明 |
+|------|------|------|
+| `smartlamp/light` | 雙向 | 燈光亮度控制與狀態回報 |
+| `smartlamp/environment` | ESP32 → Broker | 溫度、濕度、光線強度 |
+| `smartlamp/reminder` | 雙向 | 久坐偵測狀態與重置指令 |
+| `smartlamp/timer` | 雙向 | 計時器狀態 |
+| `smartlamp/alarm` | Node-RED → ESP32 | 鬧鐘設定 |
+| `smartlamp/settings/sitting_reminder` | Node-RED → ESP32 | 久坐提醒時間閾值設定 |
+
+### Payload 格式範例
+
+```jsonc
+// smartlamp/environment（每 5 秒發布）
+{ "temperature": 27.00, "humidity": 84.00, "light": 141 }
+
+// smartlamp/reminder（每 5 秒發布）
+{ "sitting": true, "alarm": false, "duration": 134 }
+
+// smartlamp/light（亮度控制）
+{ "brightness": 200 }
+
+// 重置久坐提醒（Node-RED 發送）
+"reset"
+```
+
+---
+
+## 專案結構
 
 ```
-smartlamp/light {"brightness":255}
-smartlamp/environment {"temperature":29.00,"humidity":90.00,"light":128}
-smartlamp/reminder {"sitting":true,"alarm":false,"duration":134,"threshold":600}
-smartlamp/test 測試訊息
-smartlamp/environment {"temperature":27.00,"humidity":87.00,"light":159}
-smartlamp/reminder {"sitting":true,"alarm":false,"duration":139,"threshold":600}
-smartlamp/environment {"temperature":27.00,"humidity":84.00,"light":139}
-smartlamp/reminder {"sitting":true,"alarm":false,"duration":144,"threshold":600}
-smartlamp/environment {"temperature":27.00,"humidity":84.00,"light":141}
-smartlamp/reminder {"sitting":true,"alarm":false,"duration":149,"threshold":600}
-smartlamp/environment {"temperature":27.00,"humidity":87.00,"light":163}
-smartlamp/reminder {"sitting":true,"alarm":false,"duration":154,"threshold":600}
-smartlamp/settings/sitting_reminder {"reminder_time":300}
+esp32-smart-desk-lamp/
+├── Arduino_DHT/
+│   └── Arduino_DHT.ino        # ESP32 主程式韌體
+├── node-red-data/
+│   ├── flows.json              # Node-RED 流程定義
+│   ├── flows_cred.json         # Node-RED 流程憑證（請勿公開）
+│   ├── settings.js             # Node-RED 伺服器設定
+│   └── package.json            # Node-RED 依賴套件
+├── mosquitto.conf              # MQTT Broker 設定檔
+├── package.json                # 專案啟動設定
+└── README.md
 ```
 
-這些消息可以通過以下命令監聽：
-```bash
-
-```mosquitto_sub -h localhost -t "smartlamp/#" -v
+---
 
 ## 故障排除
 
-1. 如果MQTT連接失敗，請確保：
-   - ESP32和電腦在同一網路中
-   - MQTT伺服器設定允許外部連接
-   - 防火牆沒有阻擋1883埠
+**Q: ESP32 無法連接 MQTT Broker**
+- 確認 ESP32 與主機在同一個 WiFi 網段
+- 確認 `mosquitto.conf` 中已啟用 `allow_anonymous true` 或設定正確的認證資訊
+- 確認防火牆未封鎖 TCP Port `1883`
 
-2. 如果Node-RED無法啟動，請檢查：
-   - node-red-data目錄是否存在
-   - 1880埠是否被其他程式佔用
+**Q: Node-RED 啟動後看不到流程**
+- 確認是在專案根目錄執行 `npm start`，而非直接執行 `node-red`
+- 若曾使用預設路徑，可手動複製流程：
+  ```bash
+  cp ~/.node-red/flows.json ./node-red-data/flows.json
+  ```
 
-3. 如果無法看到之前創建的流程：
-   - 確認是使用專案根目錄 `/Users/eason/esp32` 中的 `npm start` 命令啟動Node-RED
-   - 如果之前使用了默認的Node-RED，可以複製流程文件：
-     ```bash
-     cp /Users/eason/.node-red/flows.json /Users/eason/esp32/node-red-data/
-     ```
+**Q: Node-RED 無法啟動**
+- 確認 Port `1880` 未被其他程序佔用：`lsof -i :1880`
+- 確認 `node-red-data/` 目錄存在且具有讀寫權限
+
+**Q: DHT11 讀取失敗**
+- 確認接線正確（VCC / DATA / GND）
+- DATA 腳位需加上 10kΩ 上拉電阻
+- 確認 Arduino 程式中 `DHTPIN` 定義與實際接線一致（GPIO 25）
